@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 from .audit import AuditTrail
+from .calibration import compute_calibration
 from .evaluator import evaluate_batch
 from .simulator import generate_transactions
 
@@ -19,6 +20,7 @@ def main() -> None:
     audit = AuditTrail()
     baseline = evaluate_batch(holdout, "baseline")
     adaptive = evaluate_batch(holdout, "razrevrec", audit)
+    calibration = compute_calibration(holdout)
     valid, explanation = audit.verify()
 
     print("RazRevRec batch evaluation (synthetic held-out data)")
@@ -27,10 +29,12 @@ def main() -> None:
     print(f"RazRevRec net recovery:          INR {adaptive.net_recovered_value:,.2f}")
     print(f"Net recovery lift:               INR {adaptive.net_recovered_value - baseline.net_recovered_value:,.2f}")
     print(f"RazRevRec customer contacts:     {adaptive.customer_contacts}")
-    print(f"Policy denials (safety stops):   {adaptive.policy_denials}")
+    print(f"Strategy-selected stops:         {adaptive.strategy_stops}")
+    print(f"Policy Guard overrides:          {adaptive.guard_overrides}")
+    print(f"Executed-action ECE:             {calibration.expected_calibration_error:.4f} ({calibration.evaluated_predictions} predictions)")
+    print(f"Naive constant-0.5 ECE:          {calibration.naive_constant_ece:.4f}")
     print(f"Audit events: {len(audit.events):,} | {explanation if valid else 'FAILED: ' + explanation}")
 
 
 if __name__ == "__main__":
     main()
-

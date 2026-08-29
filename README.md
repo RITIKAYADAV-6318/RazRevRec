@@ -14,4 +14,4 @@ python -m unittest discover -s tests -v
 python -m src.demo --transactions 2000 --seed 20260827
 ```
 
-The comparison is against a retry-only baseline subject to the same non-negotiable safety guard. Customer contacts are reported as an independent customer-impact metric; a retry-only baseline has no contacts, so it would be misleading to claim that RazRevRec sends fewer than that baseline.
+The comparison is against a fixed retry-only baseline: it proposes one immediate retry when the payment has fewer than two prior retry attempts; otherwise it stops. Both strategies pass through the same non-negotiable Policy Guard. Customer contacts are reported as an independent customer-impact metric; a retry-only baseline has no contacts, so it would be misleading to claim that RazRevRec sends fewer than that baseline.
