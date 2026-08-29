@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from .cohorts import CONTACT_ACTIONS, RETRY_ACTIONS, RecoveryAction
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class RecoveryCase:
     transaction_id: str
     amount: float
@@ -47,4 +47,3 @@ class PolicyGuard:
         if action in CONTACT_ACTIONS and case.prior_notifications_sent >= self.max_notifications:
             return GuardDecision(False, RecoveryAction.STOP, "Denied: maximum customer notification limit reached.")
         return GuardDecision(True, action, "Approved: proposed action satisfies all deterministic policy rules.")
-
