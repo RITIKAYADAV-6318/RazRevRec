@@ -64,19 +64,23 @@ def evaluate_batch(
         else:
             action = _baseline_action(transaction)
             probability = estimate_recovery_probability(context, transaction.cohort, action)
-        if action is RecoveryAction.STOP:
-            strategy_stops += 1
-            if audit_trail:
-                audit_trail.append("diagnosis", {"transaction_id": transaction.transaction_id, "cohort": transaction.cohort.value, "probability": probability})
-                audit_trail.append("strategy", {"transaction_id": transaction.transaction_id, "mode": mode, "proposed_action": action.value})
-                audit_trail.append("policy_guard", {"transaction_id": transaction.transaction_id, "approved": False, "explanation": "No recovery action proposed: strategy selected STOP."})
-            continue
+        # The guard ALWAYS evaluates, even when the strategy itself proposes STOP.
+        # Idempotency / fraud / opt-out are safety checks, not strategy checks — they
+        # must never be skippable just because the strategy independently agreed to stop.
         case = _case_for_guard(transaction, probability, transaction.transaction_id in already_recovered_ids)
         decision = guard.evaluate(case, action)
         if audit_trail:
             audit_trail.append("diagnosis", {"transaction_id": transaction.transaction_id, "cohort": transaction.cohort.value, "probability": probability})
             audit_trail.append("strategy", {"transaction_id": transaction.transaction_id, "mode": mode, "proposed_action": action.value})
+            # Always record the guard's OWN approved/explanation verbatim. Do not
+            # special-case or override either field here -- any transformation risks
+            # producing an audit entry that contradicts what actually happened (this
+            # replaced a bug where every approved+executed transaction was logged as
+            # approved=False despite its own explanation text saying "Approved").
             audit_trail.append("policy_guard", {"transaction_id": transaction.transaction_id, "approved": decision.approved, "explanation": decision.explanation})
+        if action is RecoveryAction.STOP:
+            strategy_stops += 1
+            continue
         if not decision.approved:
             guard_overrides += 1
             continue

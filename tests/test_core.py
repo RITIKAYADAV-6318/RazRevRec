@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 from src.cohorts import FailureCohort, RecoveryAction
 from src.audit import AuditTrail
@@ -10,7 +11,7 @@ from src.evaluator import evaluate_batch
 from src.erv import expected_recovery_value
 from src.policy_guard import PolicyGuard, RecoveryCase
 from src.simulator import generate_transactions, recovery_probability, simulate_outcome
-from src.strategy import StrategyContext, StrategyEngine
+from src.strategy import StrategyContext, StrategyDecision, StrategyEngine
 
 
 class CoreTests(unittest.TestCase):
@@ -95,6 +96,38 @@ class CoreTests(unittest.TestCase):
         evaluate_batch(batch, "razrevrec", trail, frozenset({batch[0].transaction_id}))
         decisions = [event.payload["explanation"] for event in trail.events if event.event_type == "policy_guard"]
         self.assertTrue(any("idempotency" in explanation for explanation in decisions))
+
+    def test_stop_proposal_still_checked_for_idempotency(self):
+        # Regression test: even when the strategy independently proposes STOP,
+        # the Policy Guard must still evaluate — its idempotency/fraud/opt-out
+        # checks are safety rules, not strategy rules, and must never be
+        # skippable just because the strategy also happened to say "stop".
+        batch = generate_transactions(1, 7, "holdout")
+        forced_stop = StrategyDecision(RecoveryAction.STOP, 0.0, 0.0, "forced for test")
+        trail = AuditTrail()
+        with patch("src.evaluator.StrategyEngine.choose", return_value=forced_stop):
+            evaluate_batch(batch, "razrevrec", trail, frozenset({batch[0].transaction_id}))
+        guard_events = [event.payload for event in trail.events if event.event_type == "policy_guard"]
+        self.assertEqual(len(guard_events), 1)
+        self.assertIn("idempotency", guard_events[0]["explanation"])
+        self.assertNotIn("strategy selected STOP", guard_events[0]["explanation"])
+
+    def test_audit_approved_field_matches_actual_execution(self):
+        """Regression test: the policy_guard audit event's 'approved' field must
+        never contradict whether the transaction was actually executed. This
+        catches a real bug where 'approved' was hardcoded to False for every
+        transaction, even ones with a completed outcome event."""
+        batch = generate_transactions(30, 7, "audit_consistency_check")
+        trail = AuditTrail()
+        evaluate_batch(batch, "razrevrec", trail)
+        guard_events = {e.payload["transaction_id"]: e.payload for e in trail.events if e.event_type == "policy_guard"}
+        outcome_ids = {e.payload["transaction_id"] for e in trail.events if e.event_type == "outcome"}
+        for tid in outcome_ids:
+            self.assertTrue(
+                guard_events[tid]["approved"],
+                f"Transaction {tid} has an outcome event (was executed) but its "
+                f"policy_guard audit entry says approved=False"
+            )
 
     def test_calibration_is_deterministic(self):
         batch = generate_transactions(200, 42, "holdout")
