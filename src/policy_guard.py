@@ -40,7 +40,14 @@ class PolicyGuard:
             return GuardDecision(False, RecoveryAction.STOP, "Denied: fraud risk score exceeds the permitted threshold.")
         if case.opted_out and action in CONTACT_ACTIONS:
             return GuardDecision(False, RecoveryAction.STOP, "Denied: customer has opted out of recovery communications.")
-        if case.recovery_probability < self.min_probability:
+        # ESCALATE is deliberately exempt from the probability floor: it exists
+        # precisely for cases too uncertain for automated actions to handle, so
+        # a low recovery_probability is the REASON to escalate, not grounds to
+        # deny it. Applying this check to ESCALATE would guarantee every
+        # escalation is denied (escalation is only ever proposed for
+        # low-probability cases in the first place) -- making the escalation
+        # path permanently unreachable dead code.
+        if action is not RecoveryAction.ESCALATE and case.recovery_probability < self.min_probability:
             return GuardDecision(False, RecoveryAction.STOP, "Denied: recovery probability is below the minimum threshold.")
         if action in RETRY_ACTIONS and case.retry_attempt_number >= self.max_retries:
             return GuardDecision(False, RecoveryAction.STOP, "Denied: maximum retry attempts reached.")

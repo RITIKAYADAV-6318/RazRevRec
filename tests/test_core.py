@@ -153,3 +153,23 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(payload["audit"]["chain_valid"])
         self.assertTrue(payload["hero_case"]["transaction_id"])
         self.assertTrue(payload["audit"]["hero_events"])
+
+    def test_guard_approves_low_probability_escalation(self):
+        case = RecoveryCase(transaction_id="tx-1", amount=8000, fraud_risk_score=0.30, opted_out=False, already_recovered=False, recovery_probability=0.05, retry_attempt_number=0, prior_notifications_sent=0)
+        decision = PolicyGuard().evaluate(case, RecoveryAction.ESCALATE)
+        self.assertTrue(decision.approved)
+
+    def test_guard_still_blocks_escalation_only_for_already_recovered(self):
+        already_recovered_case = RecoveryCase(transaction_id="tx-1", amount=8000, fraud_risk_score=0.10, opted_out=False, already_recovered=True, recovery_probability=0.05, retry_attempt_number=0, prior_notifications_sent=0)
+        self.assertFalse(PolicyGuard().evaluate(already_recovered_case, RecoveryAction.ESCALATE).approved)
+
+    def test_guard_approves_high_fraud_escalation(self):
+        high_fraud_case = RecoveryCase(transaction_id="tx-2", amount=8000, fraud_risk_score=0.90, opted_out=False, already_recovered=False, recovery_probability=0.05, retry_attempt_number=0, prior_notifications_sent=0)
+        self.assertTrue(PolicyGuard().evaluate(high_fraud_case, RecoveryAction.ESCALATE).approved)
+
+    def test_escalation_path_is_reachable_at_batch_scale(self):
+        batch = generate_transactions(2000, 20260827, "holdout")
+        trail = AuditTrail()
+        evaluate_batch(batch, "razrevrec", trail)
+        escalate_outcomes = [e for e in trail.events if e.event_type == "outcome" and e.payload["action"] == "escalate"]
+        self.assertEqual(len(escalate_outcomes), 223)
