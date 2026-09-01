@@ -36,19 +36,23 @@ class PolicyGuard:
     def evaluate(self, case: RecoveryCase, action: RecoveryAction) -> GuardDecision:
         if case.already_recovered:
             return GuardDecision(False, RecoveryAction.STOP, "Denied: payment has already been recovered (idempotency protection).")
-        if case.fraud_risk_score > self.fraud_threshold:
-            return GuardDecision(False, RecoveryAction.STOP, "Denied: fraud risk score exceeds the permitted threshold.")
+        # ESCALATE is the human-in-the-loop fallback specifically for cases too
+        # risky or uncertain for automation -- it is the designated action for
+        # the fraud-decline cohort (see simulator.py ACTION_COHORT_EFFECT) and
+        # is only ever proposed for low-probability cases. Both the fraud
+        # threshold and the probability floor exist to block AUTOMATED actions
+        # under exactly those conditions; applying either to ESCALATE would
+        # deny it for the very reason it was proposed, making the escalation
+        # path permanently unreachable. Idempotency (above) still applies
+        # unconditionally -- there's never a reason to escalate an
+        # already-recovered payment.
+        if action is not RecoveryAction.ESCALATE:
+            if case.fraud_risk_score > self.fraud_threshold:
+                return GuardDecision(False, RecoveryAction.STOP, "Denied: fraud risk score exceeds the permitted threshold.")
+            if case.recovery_probability < self.min_probability:
+                return GuardDecision(False, RecoveryAction.STOP, "Denied: recovery probability is below the minimum threshold.")
         if case.opted_out and action in CONTACT_ACTIONS:
             return GuardDecision(False, RecoveryAction.STOP, "Denied: customer has opted out of recovery communications.")
-        # ESCALATE is deliberately exempt from the probability floor: it exists
-        # precisely for cases too uncertain for automated actions to handle, so
-        # a low recovery_probability is the REASON to escalate, not grounds to
-        # deny it. Applying this check to ESCALATE would guarantee every
-        # escalation is denied (escalation is only ever proposed for
-        # low-probability cases in the first place) -- making the escalation
-        # path permanently unreachable dead code.
-        if action is not RecoveryAction.ESCALATE and case.recovery_probability < self.min_probability:
-            return GuardDecision(False, RecoveryAction.STOP, "Denied: recovery probability is below the minimum threshold.")
         if action in RETRY_ACTIONS and case.retry_attempt_number >= self.max_retries:
             return GuardDecision(False, RecoveryAction.STOP, "Denied: maximum retry attempts reached.")
         if action in CONTACT_ACTIONS and case.prior_notifications_sent >= self.max_notifications:
