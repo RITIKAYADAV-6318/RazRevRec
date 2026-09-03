@@ -25,6 +25,8 @@ class CalibrationReport:
     bins: tuple[CalibrationBin, ...]
     expected_calibration_error: float
     naive_constant_ece: float
+    brier_score: float
+    naive_constant_brier: float
     evaluated_predictions: int
 
 
@@ -113,12 +115,26 @@ def compute_calibration(transactions: list[SimulatedTransaction], num_bins: int 
 
     total = len(pairs)
     naive_constant_ece = 0.0
+    brier_score = 0.0
+    naive_constant_brier = 0.0
     if total:
         observed_overall = sum(recovered for _, recovered in pairs) / total
         naive_constant_ece = abs(0.5 - observed_overall)
+        # Brier score: mean squared error between predicted probability and the
+        # actual binary outcome. Unlike ECE (which only checks reliability
+        # within confidence buckets), Brier score also rewards resolution --
+        # a model that correctly separates high- and low-probability cases
+        # scores better here even if a naive constant guess happens to have
+        # low aggregate bias. This is the metric that catches the blind spot
+        # where naive_constant_ece can look deceptively good purely because
+        # the overall base rate lands close to 0.5 by coincidence.
+        brier_score = sum((predicted - float(recovered)) ** 2 for predicted, recovered in pairs) / total
+        naive_constant_brier = sum((0.5 - float(recovered)) ** 2 for _, recovered in pairs) / total
     return CalibrationReport(
         bins=tuple(bins),
         expected_calibration_error=round(ece_numerator / total, 6) if total else 0.0,
         naive_constant_ece=round(naive_constant_ece, 6),
+        brier_score=round(brier_score, 6),
+        naive_constant_brier=round(naive_constant_brier, 6),
         evaluated_predictions=total,
     )

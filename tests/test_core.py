@@ -147,6 +147,28 @@ class CoreTests(unittest.TestCase):
         report = compute_calibration(generate_transactions(2, 42, "holdout"), num_bins=10)
         self.assertGreaterEqual(report.expected_calibration_error, 0.0)
         self.assertLessEqual(report.expected_calibration_error, 1.0)
+        
+    def test_brier_score_matches_manual_computation(self):
+        batch = generate_transactions(200, 42, "holdout")
+        report = compute_calibration(batch)
+        from src.calibration import _executed_pairs
+        pairs = _executed_pairs(batch)
+        expected_brier = round(sum((p - float(y)) ** 2 for p, y in pairs) / len(pairs), 6)
+        expected_naive = round(sum((0.5 - float(y)) ** 2 for _, y in pairs) / len(pairs), 6)
+        self.assertEqual(report.brier_score, expected_brier)
+        self.assertEqual(report.naive_constant_brier, expected_naive)
+
+    def test_naive_constant_brier_is_a_fixed_baseline(self):
+        for seed, label in [(42, "holdout"), (7, "brier_check_a"), (99, "brier_check_b")]:
+            batch = generate_transactions(300, seed, label)
+            report = compute_calibration(batch)
+            if report.evaluated_predictions > 0:
+                self.assertEqual(report.naive_constant_brier, 0.25)
+
+    def test_model_brier_score_beats_naive_baseline(self):
+        batch = generate_transactions(2000, 20260827, "holdout")
+        report = compute_calibration(batch)
+        self.assertLess(report.brier_score, report.naive_constant_brier)
 
     def test_dashboard_export_uses_verified_audit_events(self):
         payload = build_dashboard_payload(100, 42)
