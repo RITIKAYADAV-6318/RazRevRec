@@ -33,7 +33,6 @@ def main() -> None:
     print(f"Policy Guard overrides:          {adaptive.guard_overrides}")
     print(f"Executed-action ECE:             {calibration.expected_calibration_error:.4f} ({calibration.evaluated_predictions} predictions)")
     print(f"Naive constant-0.5 ECE:          {calibration.naive_constant_ece:.4f}")
-    print(f"Executed-action ECE:             {calibration.expected_calibration_error:.4f} ({calibration.evaluated_predictions} predictions)")
     print(f"Executed-action Brier score:      {calibration.brier_score:.4f} (lower is better)")
     print(f"Naive constant-0.5 Brier score:   {calibration.naive_constant_brier:.4f} (fixed baseline -- 0.25 for any binary outcome)")
     print(f"Audit events: {len(audit.events):,} | {explanation if valid else 'FAILED: ' + explanation}")
