@@ -147,7 +147,7 @@ class CoreTests(unittest.TestCase):
         report = compute_calibration(generate_transactions(2, 42, "holdout"), num_bins=10)
         self.assertGreaterEqual(report.expected_calibration_error, 0.0)
         self.assertLessEqual(report.expected_calibration_error, 1.0)
-        
+
     def test_brier_score_matches_manual_computation(self):
         batch = generate_transactions(200, 42, "holdout")
         report = compute_calibration(batch)
@@ -170,6 +170,37 @@ class CoreTests(unittest.TestCase):
         report = compute_calibration(batch)
         self.assertLess(report.brier_score, report.naive_constant_brier)
 
+    def test_guard_decision_reason_codes_are_stable(self):
+        already_recovered_case = RecoveryCase(transaction_id="tx-1", amount=8000, fraud_risk_score=0.10, opted_out=False, already_recovered=True, recovery_probability=0.64, retry_attempt_number=0, prior_notifications_sent=0)
+        self.assertEqual(PolicyGuard().evaluate(already_recovered_case, RecoveryAction.SMART_RETRY).reason, "already_recovered")
+        fraud_case = RecoveryCase(transaction_id="tx-2", amount=8000, fraud_risk_score=0.90, opted_out=False, already_recovered=False, recovery_probability=0.64, retry_attempt_number=0, prior_notifications_sent=0)
+        self.assertEqual(PolicyGuard().evaluate(fraud_case, RecoveryAction.SMART_RETRY).reason, "fraud_risk")
+        low_prob_case = RecoveryCase(transaction_id="tx-3", amount=8000, fraud_risk_score=0.10, opted_out=False, already_recovered=False, recovery_probability=0.05, retry_attempt_number=0, prior_notifications_sent=0)
+        self.assertEqual(PolicyGuard().evaluate(low_prob_case, RecoveryAction.SMART_RETRY).reason, "low_probability")
+        opted_out_case = RecoveryCase(transaction_id="tx-4", amount=8000, fraud_risk_score=0.10, opted_out=True, already_recovered=False, recovery_probability=0.64, retry_attempt_number=0, prior_notifications_sent=0)
+        self.assertEqual(PolicyGuard().evaluate(opted_out_case, RecoveryAction.CUSTOMER_REMINDER).reason, "opted_out")
+        max_retries_case = RecoveryCase(transaction_id="tx-5", amount=8000, fraud_risk_score=0.10, opted_out=False, already_recovered=False, recovery_probability=0.64, retry_attempt_number=5, prior_notifications_sent=0)
+        self.assertEqual(PolicyGuard().evaluate(max_retries_case, RecoveryAction.SMART_RETRY).reason, "max_retries")
+        max_notifications_case = RecoveryCase(transaction_id="tx-6", amount=8000, fraud_risk_score=0.10, opted_out=False, already_recovered=False, recovery_probability=0.64, retry_attempt_number=0, prior_notifications_sent=5)
+        self.assertEqual(PolicyGuard().evaluate(max_notifications_case, RecoveryAction.CUSTOMER_REMINDER).reason, "max_notifications")
+        approved_case = RecoveryCase(transaction_id="tx-7", amount=8000, fraud_risk_score=0.10, opted_out=False, already_recovered=False, recovery_probability=0.64, retry_attempt_number=0, prior_notifications_sent=0)
+        self.assertIsNone(PolicyGuard().evaluate(approved_case, RecoveryAction.SMART_RETRY).reason)
+
+    def test_guard_denial_reasons_breakdown_sums_correctly(self):
+        batch = generate_transactions(2000, 20260827, "holdout")
+        metrics = evaluate_batch(batch, "razrevrec")
+        breakdown_total = sum(metrics.guard_denial_reasons.values())
+        self.assertGreaterEqual(breakdown_total, metrics.guard_overrides)
+        self.assertEqual(set(metrics.guard_denial_reasons.keys()) - {"already_recovered", "fraud_risk", "opted_out", "low_probability", "max_retries", "max_notifications"}, set())
+
+    def test_audit_policy_guard_event_includes_reason_code(self):
+        batch = generate_transactions(3, 99, "holdout")
+        trail = AuditTrail()
+        evaluate_batch(batch, "razrevrec", trail, frozenset({batch[0].transaction_id}))
+        guard_events = [e.payload for e in trail.events if e.event_type == "policy_guard"]
+        idempotency_events = [e for e in guard_events if e.get("reason") == "already_recovered"]
+        self.assertGreaterEqual(len(idempotency_events), 1)
+    
     def test_dashboard_export_uses_verified_audit_events(self):
         payload = build_dashboard_payload(100, 42)
         self.assertTrue(payload["audit"]["chain_valid"])

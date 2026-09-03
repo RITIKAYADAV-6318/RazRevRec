@@ -24,6 +24,12 @@ class GuardDecision:
     approved: bool
     action: RecoveryAction
     explanation: str
+    # Short, stable machine-readable code identifying WHY this decision was
+    # made -- None when approved. Kept separate from `explanation` (free text
+    # for humans/audit display) so callers can categorize decisions reliably
+    # without string-matching on prose, which would silently break if wording
+    # ever changes.
+    reason: str | None = None
 
 
 class PolicyGuard:
@@ -35,7 +41,7 @@ class PolicyGuard:
 
     def evaluate(self, case: RecoveryCase, action: RecoveryAction) -> GuardDecision:
         if case.already_recovered:
-            return GuardDecision(False, RecoveryAction.STOP, "Denied: payment has already been recovered (idempotency protection).")
+            return GuardDecision(False, RecoveryAction.STOP, "Denied: payment has already been recovered (idempotency protection).", reason="already_recovered")
         # ESCALATE is the human-in-the-loop fallback specifically for cases too
         # risky or uncertain for automation -- it is the designated action for
         # the fraud-decline cohort (see simulator.py ACTION_COHORT_EFFECT) and
@@ -48,13 +54,13 @@ class PolicyGuard:
         # already-recovered payment.
         if action is not RecoveryAction.ESCALATE:
             if case.fraud_risk_score > self.fraud_threshold:
-                return GuardDecision(False, RecoveryAction.STOP, "Denied: fraud risk score exceeds the permitted threshold.")
+                return GuardDecision(False, RecoveryAction.STOP, "Denied: fraud risk score exceeds the permitted threshold.", reason="fraud_risk")
             if case.recovery_probability < self.min_probability:
-                return GuardDecision(False, RecoveryAction.STOP, "Denied: recovery probability is below the minimum threshold.")
+                return GuardDecision(False, RecoveryAction.STOP, "Denied: recovery probability is below the minimum threshold.", reason="low_probability")
         if case.opted_out and action in CONTACT_ACTIONS:
-            return GuardDecision(False, RecoveryAction.STOP, "Denied: customer has opted out of recovery communications.")
+            return GuardDecision(False, RecoveryAction.STOP, "Denied: customer has opted out of recovery communications.", reason="opted_out")
         if action in RETRY_ACTIONS and case.retry_attempt_number >= self.max_retries:
-            return GuardDecision(False, RecoveryAction.STOP, "Denied: maximum retry attempts reached.")
+            return GuardDecision(False, RecoveryAction.STOP, "Denied: maximum retry attempts reached.", reason="max_retries")
         if action in CONTACT_ACTIONS and case.prior_notifications_sent >= self.max_notifications:
-            return GuardDecision(False, RecoveryAction.STOP, "Denied: maximum customer notification limit reached.")
+            return GuardDecision(False, RecoveryAction.STOP, "Denied: maximum customer notification limit reached.", reason="max_notifications")
         return GuardDecision(True, action, "Approved: proposed action satisfies all deterministic policy rules.")

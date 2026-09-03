@@ -22,6 +22,14 @@ class EvaluationMetrics:
     approved_actions: int
     strategy_stops: int
     guard_overrides: int
+    # Breakdown of WHY the guard denied a proposed action, keyed by
+    # PolicyGuard's stable reason codes (already_recovered, fraud_risk,
+    # opted_out, low_probability, max_retries, max_notifications). Counted
+    # for every denial regardless of whether the proposed action was STOP --
+    # this is separate from (and a strict superset of the denial-driven part
+    # of) guard_overrides/strategy_stops, which classify by WHAT the strategy
+    # proposed, not WHY the guard objected.
+    guard_denial_reasons: dict[str, int]
 
 
 def _case_for_guard(transaction: SimulatedTransaction, probability: float, already_recovered: bool = False) -> RecoveryCase:
@@ -54,6 +62,7 @@ def evaluate_batch(
     engine = StrategyEngine()
     at_risk = recovered = cost = 0.0
     contacts = approved = strategy_stops = guard_overrides = 0
+    denial_reasons: dict[str, int] = {}
     for transaction in transactions:
         at_risk += transaction.amount
         context = context_from_transaction(transaction)
@@ -69,6 +78,8 @@ def evaluate_batch(
         # must never be skippable just because the strategy independently agreed to stop.
         case = _case_for_guard(transaction, probability, transaction.transaction_id in already_recovered_ids)
         decision = guard.evaluate(case, action)
+        if not decision.approved and decision.reason:
+            denial_reasons[decision.reason] = denial_reasons.get(decision.reason, 0) + 1
         if audit_trail:
             audit_trail.append("diagnosis", {"transaction_id": transaction.transaction_id, "cohort": transaction.cohort.value, "probability": probability})
             audit_trail.append("strategy", {"transaction_id": transaction.transaction_id, "mode": mode, "proposed_action": action.value})
@@ -77,7 +88,7 @@ def evaluate_batch(
             # producing an audit entry that contradicts what actually happened (this
             # replaced a bug where every approved+executed transaction was logged as
             # approved=False despite its own explanation text saying "Approved").
-            audit_trail.append("policy_guard", {"transaction_id": transaction.transaction_id, "approved": decision.approved, "explanation": decision.explanation})
+            audit_trail.append("policy_guard", {"transaction_id": transaction.transaction_id, "approved": decision.approved, "explanation": decision.explanation, "reason": decision.reason})
         if action is RecoveryAction.STOP:
             strategy_stops += 1
             continue
@@ -103,4 +114,5 @@ def evaluate_batch(
         approved_actions=approved,
         strategy_stops=strategy_stops,
         guard_overrides=guard_overrides,
+        guard_denial_reasons=denial_reasons,
     )

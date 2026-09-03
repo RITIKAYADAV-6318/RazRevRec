@@ -31,6 +31,8 @@ def main() -> None:
     print(f"RazRevRec customer contacts:     {adaptive.customer_contacts}")
     print(f"Strategy-selected stops:         {adaptive.strategy_stops}")
     print(f"Policy Guard overrides:          {adaptive.guard_overrides}")
+    for reason, count in sorted(adaptive.guard_denial_reasons.items(), key=lambda item: -item[1]):
+        print(f"  - {reason}: {count}")
     print(f"Executed-action ECE:             {calibration.expected_calibration_error:.4f} ({calibration.evaluated_predictions} predictions)")
     print(f"Naive constant-0.5 ECE:          {calibration.naive_constant_ece:.4f}")
     print(f"Executed-action Brier score:      {calibration.brier_score:.4f} (lower is better)")
