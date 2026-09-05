@@ -188,6 +188,7 @@ let state = {
     verifyResult: null,
     revealed: 0,     // how many events have been revealed so far (0 = not run yet)
     running: false,  // true while the reveal animation is in progress
+    openPayloads: c.events.map(() => false), // tracks which <details> boxes are expanded, so re-rendering on keystroke doesn't collapse them
   })),
 };
 
@@ -248,7 +249,7 @@ function caseHTML(caseData, caseState, caseIndex) {
       <div>
         <div class="rr-ledger-type">${event.event_type}</div>
         <div class="rr-ledger-why">${esc(plainEnglish(event))}</div>
-        <details>
+        <details data-payload-toggle="${caseIndex}:${i}"${caseState.openPayloads[i] ? " open" : ""}>
           <summary>raw payload (edit to test tamper detection)</summary>
           <textarea class="rr-payload-edit${tampered ? " tampered" : ""}" data-case="${caseIndex}" data-event="${i}" spellcheck="false">${esc(caseState.editedPayloads[i])}</textarea>
           <div class="rr-ledger-hash">stored hash: ${event.event_hash.slice(0,24)}…</div>
@@ -288,6 +289,7 @@ function caseHTML(caseData, caseState, caseIndex) {
 function render() {
   const active = DATA.batch[state.mode];
   const casesHTML = DATA.cases.map((c, i) => caseHTML(c, state.cases[i], i)).join("");
+  const scrollY = window.scrollY; // preserve scroll position across the innerHTML rebuild below
 
   document.getElementById("root").innerHTML = `
     <section class="rr-section">
@@ -336,11 +338,23 @@ function render() {
   `;
 
   attachHandlers();
+  window.scrollTo(0, scrollY); // restore scroll position lost when innerHTML was rebuilt above
 }
 
 function attachHandlers() {
   document.querySelectorAll("[data-mode]").forEach((btn) => {
     btn.onclick = () => { state.mode = btn.dataset.mode; render(); };
+  });
+  document.querySelectorAll("details[data-payload-toggle]").forEach((el) => {
+    // Track open/closed state so typing in the textarea (which re-renders)
+    // doesn't silently collapse this box back closed -- that was the actual
+    // cause of the page appearing to "jump to the top" while editing: the
+    // box was closing and the browser was trying to scroll to a now-hidden,
+    // newly-focused textarea inside it.
+    el.addEventListener("toggle", () => {
+      const [ci, ei] = el.dataset.payloadToggle.split(":").map(Number);
+      state.cases[ci].openPayloads[ei] = el.open;
+    });
   });
   document.querySelectorAll("textarea[data-case]").forEach((ta) => {
     ta.oninput = () => {
