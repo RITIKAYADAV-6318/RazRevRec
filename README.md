@@ -201,9 +201,7 @@ that could fail to load.
 The core decision loop in `evaluate_batch` is deliberately simple: one pass
 over transactions, constant work per transaction, no shared mutable state.
 Run `python -m benchmarks.throughput` yourself to reproduce these numbers --
-on this project's dev machine, single-core throughput measures at roughly
-**45,000-58,000 transactions/sec**, flat across batch sizes from 1,000 to
-50,000 (confirming O(n), not a hidden quadratic cost). Razorpay's ~35M
+on this project's dev machine, single-core throughput measures in the tens of thousands of transactions/sec (roughly 35,000-50,000 in our own runs, varying with machine/background load) -  importantly, throughput does not degrade as batch size grows from 1,000 to 50,000, confirming O(n) decision cost rather than a hidden quadratic one (confirming O(n), not a hidden quadratic cost). Razorpay's ~35M
 daily UPI transactions average to **~405/sec** -- so the decision logic
 itself has roughly 100x headroom on a single core before it becomes the
 bottleneck. That's expected: classifying a failure and picking an action
@@ -244,4 +242,5 @@ expected for a buildathon submission; every number is reproducible by
 anyone who clones this repo and runs the commands above.
 
 # Author - 
-# Ritika Yadav [Linkedin](https://www.linkedin.com/in/ritika-yadav-189b9137a/?lipi=urn%3Ali%3Apage%3Ad_flagship3_profile_view_base_contact_details%3BAuCWcsiJR4%2BnaBMrs133AA%3D%3D) [email](ritika170btcse25@igdtuw.ac.in)
+# Ritika Yadav 
+[Linkedin](https://www.linkedin.com/in/ritika-yadav-189b9137a/?lipi=urn%3Ali%3Apage%3Ad_flagship3_profile_view_base_contact_details%3BAuCWcsiJR4%2BnaBMrs133AA%3D%3D) [email](ritika170btcse25@igdtuw.ac.in)
