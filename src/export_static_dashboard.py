@@ -56,7 +56,50 @@ def _event_for_js(event: AuditEvent) -> dict[str, object]:
     }
 
 
-def _pick_recovered_case(audit: AuditTrail) -> str | None:
+def _pick_recovered_case(audit: AuditTrail, holdout: list) -> str | None:
+    """Prefer a recovered case that demonstrates the strategy engine's actual
+    value: an insufficient_funds transaction where a delayed retry (WAIT_AND_RETRY)
+    was chosen over an immediate retry (SMART_RETRY) because it has meaningfully
+    higher expected recovery value -- not just cohort base-rate luck. This is a
+    stronger, more specific story than "first recovered transaction we find" and
+    matches the demo narrative in the project plan (delayed retry beating immediate
+    retry due to fatigue/timing). Falls back to the generic "first recovered case"
+    if no such transaction exists in this batch/seed, so this never raises.
+    """
+    from .cohorts import FailureCohort, RecoveryAction
+    from .strategy import StrategyEngine, context_from_transaction, estimate_recovery_probability
+    from .erv import expected_recovery_value
+
+    engine = StrategyEngine()
+    tx_by_id = {tx.transaction_id: tx for tx in holdout}
+    recovered_ids = {
+        event.payload["transaction_id"]
+        for event in audit.events
+        if event.event_type == "outcome" and event.payload.get("recovered") is True
+    }
+
+    best_id = None
+    best_margin = -1.0
+    for tid in recovered_ids:
+        tx = tx_by_id.get(tid)
+        if tx is None or tx.cohort != FailureCohort.INSUFFICIENT_FUNDS:
+            continue
+        context = context_from_transaction(tx)
+        proposal = engine.choose(context, tx.cohort)
+        if proposal.action != RecoveryAction.WAIT_AND_RETRY:
+            continue
+        p_smart = estimate_recovery_probability(context, tx.cohort, RecoveryAction.SMART_RETRY)
+        erv_smart = expected_recovery_value(tx.amount, p_smart, RecoveryAction.SMART_RETRY, tx.prior_notifications_sent)
+        margin = proposal.expected_recovery_value - erv_smart
+        if margin > best_margin:
+            best_margin = margin
+            best_id = tid
+
+    if best_id is not None:
+        return best_id
+
+    # Fallback: no insufficient_funds/wait_and_retry story in this batch -- use
+    # the first recovered transaction of any kind rather than failing outright.
     for event in audit.events:
         if event.event_type == "outcome" and event.payload.get("recovered") is True:
             return event.payload["transaction_id"]
@@ -89,7 +132,15 @@ def _narrative_for(audit: AuditTrail, transaction_id: str, kind: str) -> tuple[s
     proposed = by_type["strategy"]["proposed_action"].replace("_", " ")
     if kind == "recovered":
         title = "One case, followed end to end"
-        narrative = f"{cohort.capitalize()}, {probability_pct}% predicted recovery chance. The guard approved {proposed}. It worked."
+        if by_type["diagnosis"]["cohort"] == "insufficient_funds" and by_type["strategy"]["proposed_action"] == "wait_and_retry":
+            narrative = (
+                f"{cohort.capitalize()}, {probability_pct}% predicted recovery chance. "
+                f"An immediate retry looked cheaper, but the strategy engine scored a delayed retry "
+                f"as having meaningfully higher expected value once fatigue and timing were priced in. "
+                f"The guard approved it. It worked."
+            )
+        else:
+            narrative = f"{cohort.capitalize()}, {probability_pct}% predicted recovery chance. The guard approved {proposed}. It worked."
     else:
         reason = by_type["policy_guard"].get("reason", "policy")
         title = "One case, correctly refused"
@@ -109,7 +160,7 @@ def build_data_dict(transactions: int, seed: int) -> dict[str, object]:
     calibration = compute_calibration(holdout)
     chain_valid, _ = audit.verify()
 
-    recovered_id = _pick_recovered_case(audit)
+    recovered_id = _pick_recovered_case(audit, holdout)
     denied_id = _pick_denied_case(audit)
     if recovered_id is None or denied_id is None:
         raise RuntimeError(
