@@ -244,4 +244,4 @@ expected for a buildathon submission; every number is reproducible by
 anyone who clones this repo and runs the commands above.
 
 # Author - 
-# Ritika Yadav [Linkedin] (https://www.linkedin.com/in/ritika-yadav-189b9137a/?lipi=urn%3Ali%3Apage%3Ad_flagship3_profile_view_base_contact_details%3BAuCWcsiJR4%2BnaBMrs133AA%3D%3D) [email](ritika170btcse25@igdtuw.ac.in)
+# Ritika Yadav [Linkedin](https://www.linkedin.com/in/ritika-yadav-189b9137a/?lipi=urn%3Ali%3Apage%3Ad_flagship3_profile_view_base_contact_details%3BAuCWcsiJR4%2BnaBMrs133AA%3D%3D) [email](ritika170btcse25@igdtuw.ac.in)
